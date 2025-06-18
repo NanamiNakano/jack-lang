@@ -17,14 +17,11 @@ use snafu::{ResultExt, Snafu};
 #[derive(Snafu, Debug)]
 pub enum Error {
     #[snafu(display("error while lexing: {source}"))]
-    Lexing {
-        source: LexingError,
-    },
+    Lexing { source: LexingError },
+    #[snafu(display("error while parsing"))]
     Parsing,
     #[snafu(display("error while generating: {source}"))]
-    Generating {
-        source: GeneratingError,
-    },
+    Generating { source: GeneratingError },
 }
 
 fn parser<'tokens, I>() -> impl Parser<'tokens, I, Vec<StackInstr>, extra::Err<Rich<'tokens, Token>>>
@@ -66,28 +63,30 @@ where
             .map(|(seg, lit)| StackInstr::pop(seg, &lit)),
     ))
     .separated_by(just(Token::Newline))
+    .allow_leading()
+    .allow_trailing()
     .collect()
 }
 
 pub fn parse(input: impl AsRef<str>) -> Result<Vec<StackInstr>, Error> {
-    let token_iter = Token::lexer(input.as_ref())
+    let tokens = Token::lexer(input.as_ref())
         .spanned()
         .map(|(tok, span)| match tok {
             Ok(tok) => Ok((tok, span.into())),
             Err(source) => Err(Error::Lexing { source }),
         })
         .collect::<Result<Vec<_>, Error>>()?;
-    let token_stream = Stream::from_iter(token_iter)
-        .map((0..input.as_ref().len()).into(), |(t, s): (_, _)| (t, s));
+    let token_stream =
+        Stream::from_iter(tokens).map((0..input.as_ref().len()).into(), |(t, s): (_, _)| (t, s));
     let result = parser().parse(token_stream);
     result.into_result().map_err(|_| Parsing)
 }
 
-pub fn generate(instr: Vec<StackInstr>, scope: &str) -> Result<String, Error> {
+pub fn generate(instr: Vec<StackInstr>, scope: impl AsRef<str>) -> Result<String, Error> {
     instr
         .iter()
         .enumerate()
-        .map(|(index, instr)| instr.generate(scope, index))
+        .map(|(index, instr)| instr.generate(&scope, index))
         .collect::<Result<String, _>>()
         .context(GeneratingSnafu)
 }

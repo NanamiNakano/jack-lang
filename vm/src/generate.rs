@@ -25,7 +25,9 @@ const LOAD_TOP: &'static str = "@SP\n\
     A=M-1\n";
 
 impl StackSegment {
-    fn generate_addr(&self, scope: &str, literal: &str) -> Result<String, Error> {
+    fn generate_addr(&self, scope: impl AsRef<str>, literal: impl AsRef<str>) -> Result<String, Error> {
+        let scope = scope.as_ref();
+        let literal = literal.as_ref();
         match self {
             StackSegment::Constant => Err(Syntax { message: "constant has no address".to_owned() }),
             StackSegment::Local => Ok(format!("@LCL\n\
@@ -63,10 +65,10 @@ impl StackSegment {
         }
     }
     
-    fn generate_load_to_d(&self, scope: &str, literal: &str) -> Result<String, Error> {
+    fn generate_load_to_d(&self, scope: impl AsRef<str>, literal: impl AsRef<str>) -> Result<String, Error> {
         match self {
-            StackSegment::Constant => Ok(format!("@{literal}\n\
-            D=A\n")),
+            StackSegment::Constant => Ok(format!("@{}\n\
+            D=A\n", literal.as_ref())),
             _ => Ok(format!("{}\
             D=M\n", self.generate_addr(scope, literal)?)),
         }
@@ -74,8 +76,8 @@ impl StackSegment {
 }
 
 impl StackInstr {
-    pub fn generate(&self, scope: &str, count: usize) -> Result<String, Error> {
-        let label = format!("{scope}.{count}");
+    pub fn generate(&self, scope: impl AsRef<str>, count: usize) -> Result<String, Error> {
+        let label = format!("{}.{count}", scope.as_ref());
         match self {
             Self::Push { segment, literal } => {
                 let load = segment.generate_load_to_d(scope, literal)?;
