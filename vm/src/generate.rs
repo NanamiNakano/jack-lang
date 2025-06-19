@@ -114,7 +114,7 @@ impl StackInstr {
                 "{POP_TO_D}{LOAD_TOP}\
             D=M-D\n\
             @TRUE.{label}\n\
-            D;JGE\n\
+            D;JGT\n\
             {LOAD_TOP}\
             M=-1\n\
             @END.{label}\n\
@@ -127,7 +127,7 @@ impl StackInstr {
                 "{POP_TO_D}{LOAD_TOP}\
             D=M-D\n\
             @TRUE.{label}\n\
-            D;JLE\n\
+            D;JLT\n\
             {LOAD_TOP}\
             M=-1\n\
             @END.{label}\n\
