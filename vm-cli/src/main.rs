@@ -8,13 +8,17 @@ use vm;
 
 #[derive(Snafu, Debug)]
 enum Error {
-    #[snafu(display("io error: {source}"))]
+    #[snafu(display("io error"))]
     IO {
         source: io::Error
     },
-    #[snafu(display("vm error: {source}"))]
-    VM {
-        source: vm::Error
+    #[snafu(display("error when parsing"))]
+    Parsing {
+        source: vm::parse::Error
+    },
+    #[snafu(display("error when generating"))]
+    Generating {
+        source: vm::generate::Error
     },
     #[snafu(display("no such file: {path}"))]
     NoSuchFile {
@@ -42,7 +46,7 @@ fn main() -> Result<(), Error> {
     } else {
         String::from("IO")
     };
-    let parsed_program = vm::parse(input).context(VMSnafu)?;
-    let generated = vm::generate(parsed_program, file_name).context(VMSnafu)?;
+    let parsed_program = vm::parse(input).context(ParsingSnafu)?;
+    let generated = vm::generate(parsed_program, file_name).context(GeneratingSnafu)?;
     opt.output.write_all(generated.as_bytes()).context(IOSnafu)
 }
