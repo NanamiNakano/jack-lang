@@ -1,12 +1,20 @@
 use logos::Logos;
 use snafu::Snafu;
-use std::borrow::ToOwned;
+use std::num::ParseIntError;
 
 #[derive(Snafu, Debug, PartialEq, Clone, Default)]
 pub enum Error {
     #[default]
     #[snafu(display("unexpected token"))]
     UnexpectedToken,
+    #[snafu(display("not an int: {source}"))]
+    ParseInt { source: ParseIntError },
+}
+
+impl From<ParseIntError> for Error {
+    fn from(value: ParseIntError) -> Self {
+        Self::ParseInt { source: value }
+    }
 }
 
 #[derive(Logos, Debug, PartialEq, Eq, Hash, Clone)]
@@ -54,22 +62,16 @@ pub(crate) enum Token {
     #[token("not")]
     Not,
 
-    #[regex("[0-9]+", |lex| lex.slice().to_owned())]
-    Literal(String),
+    #[regex("[0-9]+", |lex| lex.slice().parse())]
+    LitInt(u32),
     #[regex("\n")]
     Newline,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum StackInstr {
-    Push {
-        segment: StackSegment,
-        literal: String,
-    },
-    Pop {
-        segment: StackSegment,
-        literal: String,
-    },
+    Push { segment: StackSegment, literal: u32 },
+    Pop { segment: StackSegment, literal: u32 },
     Add,
     Subtract,
     Negate,
@@ -82,18 +84,12 @@ pub enum StackInstr {
 }
 
 impl StackInstr {
-    pub(crate) fn push(segment: StackSegment, literal: &str) -> Self {
-        Self::Push {
-            segment,
-            literal: literal.to_owned(),
-        }
+    pub(crate) fn push(segment: StackSegment, literal: u32) -> Self {
+        Self::Push { segment, literal }
     }
 
-    pub(crate) fn pop(segment: StackSegment, literal: &str) -> Self {
-        Self::Pop {
-            segment,
-            literal: literal.to_owned(),
-        }
+    pub(crate) fn pop(segment: StackSegment, literal: u32) -> Self {
+        Self::Pop { segment, literal }
     }
 }
 
@@ -107,4 +103,20 @@ pub enum StackSegment {
     Static,
     Temp,
     Pointer,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::models::Error::ParseInt;
+    use crate::models::Token;
+    use logos::Logos;
+
+    #[test]
+    fn test_lit_not_int() {
+        let testing = format!("push constant {}", u64::MAX);
+        let mut lexer = Token::lexer(&testing);
+        assert_eq!(lexer.next(), Some(Ok(Token::Push)));
+        assert_eq!(lexer.next(), Some(Ok(Token::Constant)));
+        assert!(matches!(lexer.next(), Some(Err(ParseInt { .. }))));
+    }
 }

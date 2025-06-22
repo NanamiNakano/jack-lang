@@ -1,14 +1,11 @@
-use crate::models::{StackInstr, StackSegment};
-use snafu::{ResultExt, Snafu};
-use std::num::ParseIntError;
 use crate::generate::Error::{SegmentOverflow, Syntax};
+use crate::models::{StackInstr, StackSegment};
+use snafu::Snafu;
 
 #[derive(Snafu, Debug)]
 pub enum Error {
     #[snafu(display("syntax error: {message}"))]
     Syntax { message: String },
-    #[snafu(display("not an int: {source}"))]
-    NotInt { source: ParseIntError },
     #[snafu(display("trying to access outside of a segment"))]
     SegmentOverflow
 }
@@ -25,9 +22,8 @@ const LOAD_TOP: &'static str = "@SP\n\
     A=M-1\n";
 
 impl StackSegment {
-    fn generate_addr(&self, scope: impl AsRef<str>, literal: impl AsRef<str>) -> Result<String, Error> {
+    fn generate_addr(&self, scope: impl AsRef<str>, literal: &u32) -> Result<String, Error> {
         let scope = scope.as_ref();
-        let literal = literal.as_ref();
         match self {
             StackSegment::Constant => Err(Syntax { message: "constant has no address".to_owned() }),
             StackSegment::Local => Ok(format!("@LCL\n\
@@ -48,8 +44,8 @@ impl StackSegment {
             A=D+A\n")),
             StackSegment::Static => Ok(format!("@{scope}.{literal}\n")),
             StackSegment::Temp => {
-                let index = literal.parse::<u32>().context(NotIntSnafu)?;
-                if index > 7 {
+                let index = literal;
+                if *index > 7 {
                     Err(SegmentOverflow)
                 } else { 
                     Ok(format!("@{}\n", 5 + index))
@@ -57,18 +53,18 @@ impl StackSegment {
             },
             StackSegment::Pointer => {
                 match literal { 
-                    "0" => Ok(String::from("@THIS\n")),
-                    "1" => Ok(String::from("@THAT\n")),
+                    0 => Ok(String::from("@THIS\n")),
+                    1 => Ok(String::from("@THAT\n")),
                     _ => Err(Syntax { message: "no such pointer".to_owned() })
                 }
             }
         }
     }
     
-    fn generate_load_to_d(&self, scope: impl AsRef<str>, literal: impl AsRef<str>) -> Result<String, Error> {
+    fn generate_load_to_d(&self, scope: impl AsRef<str>, literal: &u32) -> Result<String, Error> {
         match self {
-            StackSegment::Constant => Ok(format!("@{}\n\
-            D=A\n", literal.as_ref())),
+            StackSegment::Constant => Ok(format!("@{literal}\n\
+            D=A\n")),
             _ => Ok(format!("{}\
             D=M\n", self.generate_addr(scope, literal)?)),
         }

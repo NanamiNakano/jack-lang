@@ -40,7 +40,7 @@ where
     };
 
     let parse_literal = select! {
-        Token::Literal(lit) => lit
+        Token::LitInt(lit) => lit
     };
 
     choice((
@@ -56,11 +56,11 @@ where
         just(Token::Push)
             .ignore_then(parse_segment)
             .then(parse_literal)
-            .map(|(seg, lit)| StackInstr::push(seg, &lit)),
+            .map(|(seg, lit)| StackInstr::push(seg, lit)),
         just(Token::Pop)
             .ignore_then(parse_segment)
             .then(parse_literal)
-            .map(|(seg, lit)| StackInstr::pop(seg, &lit)),
+            .map(|(seg, lit)| StackInstr::pop(seg, lit)),
     ))
     .separated_by(just(Token::Newline))
     .allow_leading()
@@ -125,8 +125,8 @@ mod tests {
     fn test_parse() {
         let instr = parse(TESTING_VM).expect("expect ok");
         let parsed = vec![
-            StackInstr::push(Constant, "1"),
-            StackInstr::push(Constant, "2"),
+            StackInstr::push(Constant, 1),
+            StackInstr::push(Constant, 2),
             StackInstr::Add,
         ];
         assert_eq!(instr, parsed)
