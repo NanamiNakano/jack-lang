@@ -18,7 +18,7 @@ const PUSH_D: &'static str = "@SP\n\
 const POP_TO_D: &'static str = "@SP\n\
     AM=M-1\n\
     D=M\n";
-const LOAD_TOP: &'static str = "@SP\n\
+const LOAD_TOP_TO_M: &'static str = "@SP\n\
     A=M-1\n";
 
 impl StackSegment {
@@ -71,7 +71,11 @@ impl StackSegment {
         }
     }
 
-    fn generate_load_to_d(&self, scope: impl AsRef<str>, literal: &u32) -> Result<String, Error> {
+    fn generate_load_to_d(
+        &self,
+        scope: impl AsRef<str>,
+        literal: &u32,
+    ) -> Result<String, Error> {
         match self {
             StackSegment::Constant => Ok(format!(
                 "@{literal}\n\
@@ -86,9 +90,14 @@ impl StackSegment {
     }
 }
 
-impl StackInstr {
-    pub fn generate(&self, scope: impl AsRef<str>, count: usize) -> Result<String, Error> {
-        let label = format!("{}.{count}", scope.as_ref());
+impl Instr {
+    pub fn generate(
+        &self,
+        scope: impl AsRef<str>,
+        count: usize,
+    ) -> Result<String, Error> {
+        let boolean_label = format!("{}.{count}", scope.as_ref());
+        let return_label = format!("{}$ret.{count}", scope.as_ref());
         match self {
             Self::Push { segment, literal } => {
                 let load = segment.generate_load_to_d(scope, literal)?;
@@ -102,69 +111,69 @@ impl StackInstr {
                 ))
             }
             Self::Add => Ok(format!(
-                "{POP_TO_D}{LOAD_TOP}\
-            M=M+D\n"
+                "{POP_TO_D}{LOAD_TOP_TO_M}\
+            M=D+M\n"
             )),
             Self::Subtract => Ok(format!(
-                "{POP_TO_D}{LOAD_TOP}\
+                "{POP_TO_D}{LOAD_TOP_TO_M}\
             M=M-D\n"
             )),
             Self::Negate => Ok(format!(
-                "{LOAD_TOP}\
+                "{LOAD_TOP_TO_M}\
             M=-M\n"
             )),
             Self::Equal => Ok(format!(
-                "{POP_TO_D}{LOAD_TOP}\
+                "{POP_TO_D}{LOAD_TOP_TO_M}\
             D=M-D\n\
-            @TRUE.{label}\n\
+            @TRUE.{boolean_label}\n\
             D;JEQ\n\
-            {LOAD_TOP}\
+            {LOAD_TOP_TO_M}\
             M=-1\n\
-            @END.{label}\n\
+            @END.{boolean_label}\n\
             0;JMP\n\
-            (TRUE.{label})\n\
-            {LOAD_TOP}\
+            (TRUE.{boolean_label})\n\
+            {LOAD_TOP_TO_M}\
             M=0\n\
-            (END.{label})\n"
+            (END.{boolean_label})\n"
             )),
             Self::Greater => Ok(format!(
-                "{POP_TO_D}{LOAD_TOP}\
+                "{POP_TO_D}{LOAD_TOP_TO_M}\
             D=M-D\n\
-            @TRUE.{label}\n\
+            @TRUE.{boolean_label}\n\
             D;JGT\n\
-            {LOAD_TOP}\
+            {LOAD_TOP_TO_M}\
             M=-1\n\
-            @END.{label}\n\
+            @END.{boolean_label}\n\
             0;JMP\n\
-            (TRUE.{label})\n\
-            {LOAD_TOP}\
+            (TRUE.{boolean_label})\n\
+            {LOAD_TOP_TO_M}\
             M=0\n\
-            (END.{label})\n"
+            (END.{boolean_label})\n"
             )),
             Self::Less => Ok(format!(
-                "{POP_TO_D}{LOAD_TOP}\
+                "{POP_TO_D}{LOAD_TOP_TO_M}\
             D=M-D\n\
-            @TRUE.{label}\n\
+            @TRUE.{boolean_label}\n\
             D;JLT\n\
-            {LOAD_TOP}\
+            {LOAD_TOP_TO_M}\
             M=-1\n\
-            @END.{label}\n\
+            @END.{boolean_label}\n\
             0;JMP\n\
-            (TRUE.{label})\n\
-            {LOAD_TOP}\
+            (TRUE.{boolean_label})\n\
+            {LOAD_TOP_TO_M}\
             M=0\n\
-            (END.{label})\n"
+            (END.{boolean_label})\n"
             )),
             Self::And => Ok(format!(
-                "{POP_TO_D}{LOAD_TOP}\
+                "{POP_TO_D}{LOAD_TOP_TO_M}\
             M=M&D\n"
             )),
             Self::Or => Ok(format!(
-                "{POP_TO_D}{LOAD_TOP}\
+                "{POP_TO_D}{LOAD_TOP_TO_M}\
             M=M|D\n",
             )),
             Self::Not => Ok(format!(
-                "{POP_TO_D}{LOAD_TOP}\
+                "{POP_TO_D}{LOAD_TOP_TO_M}\
             M=!M\n"
             )),
         }
@@ -176,7 +185,7 @@ pub fn generate(instr: Vec<StackInstr>, scope: impl AsRef<str>) -> Result<String
         .iter()
         .enumerate()
         .map(|(index, instr)| instr.generate(&scope, index))
-        .collect::<Result<String, _>>()
+        .collect()
 }
 
 #[cfg(test)]
