@@ -129,15 +129,15 @@ pub enum StackSegment {
 pub struct Function {
     pub(crate) instr: Vec<Instr>,
     pub(crate) name: String,
-    pub(crate) args: u32,
+    pub(crate) vars: u32,
 }
 
 impl Function {
-    fn new(instr: Vec<Instr>, name: impl AsRef<str>, args: u32) -> Self {
+    fn new(instr: Vec<Instr>, name: impl AsRef<str>, vars: u32) -> Self {
         Self {
             instr,
             name: name.as_ref().to_owned(),
-            args,
+            vars,
         }
     }
 }
