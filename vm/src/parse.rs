@@ -1,9 +1,7 @@
-use chumsky::input::Input;
-use chumsky::IterParser;
 use chumsky::error::Rich;
-use chumsky::input::{Stream, ValueInput};
-use chumsky::prelude::{SimpleSpan, choice, just};
-use chumsky::{Parser, extra, select};
+use chumsky::prelude::{choice, just};
+use chumsky::{IterParser, extra};
+use chumsky::{Parser, select};
 use logos::Logos;
 use snafu::Snafu;
 use std::num::ParseIntError;
@@ -16,7 +14,7 @@ pub enum Error {
     #[snafu(display("not an int"))]
     ParseInt { source: ParseIntError },
     #[snafu(display("syntax error"))]
-    Syntax
+    Syntax,
 }
 
 impl From<ParseIntError> for Error {
@@ -70,14 +68,23 @@ pub(crate) enum Token {
     #[token("not")]
     Not,
 
+    #[token("function")]
+    Function,
+    #[token("call")]
+    Call,
+    #[token("return")]
+    Return,
+
     #[regex("[0-9]+", |lex| lex.slice().parse())]
     LitInt(u32),
-    #[regex("\n")]
+    #[regex("[a-zA-Z_.]+", |lex| lex.slice().to_owned())]
+    Ident(String),
+    #[token("\n")]
     Newline,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum StackInstr {
+pub enum Instr {
     Push { segment: StackSegment, literal: u32 },
     Pop { segment: StackSegment, literal: u32 },
     Add,
@@ -89,15 +96,20 @@ pub enum StackInstr {
     And,
     Or,
     Not,
+    Call { name: String, args: u32 },
 }
 
-impl StackInstr {
+impl Instr {
     pub(crate) fn push(segment: StackSegment, literal: u32) -> Self {
         Self::Push { segment, literal }
     }
 
     pub(crate) fn pop(segment: StackSegment, literal: u32) -> Self {
         Self::Pop { segment, literal }
+    }
+
+    pub(crate) fn call(name: String, args: u32) -> Self {
+        Self::Call { name, args }
     }
 }
 
@@ -113,10 +125,25 @@ pub enum StackSegment {
     Pointer,
 }
 
-pub(crate) fn parser<'tokens, I>() -> impl Parser<'tokens, I, Vec<StackInstr>, extra::Err<Rich<'tokens, Token>>>
-where
-    I: ValueInput<'tokens, Token = Token, Span = SimpleSpan>,
-{
+#[derive(Debug, Clone, PartialEq)]
+pub struct Function {
+    pub(crate) instr: Vec<Instr>,
+    pub(crate) name: String,
+    pub(crate) args: u32,
+}
+
+impl Function {
+    fn new(instr: Vec<Instr>, name: impl AsRef<str>, args: u32) -> Self {
+        Self {
+            instr,
+            name: name.as_ref().to_owned(),
+            args,
+        }
+    }
+}
+
+fn instr_parser<'tokens>()
+-> impl Parser<'tokens, &'tokens [Token], Vec<Instr>, extra::Err<Rich<'tokens, Token>>> {
     let parse_segment = select! {
         Token::Constant => StackSegment::Constant,
         Token::Local => StackSegment::Local,
@@ -132,24 +159,32 @@ where
         Token::LitInt(lit) => lit
     };
 
+    let parse_ident = select! {
+        Token::Ident(ident) => ident
+    };
+
     choice((
-        just(Token::Add).to(StackInstr::Add),
-        just(Token::Subtract).to(StackInstr::Subtract),
-        just(Token::Negate).to(StackInstr::Negate),
-        just(Token::Equal).to(StackInstr::Equal),
-        just(Token::Greater).to(StackInstr::Greater),
-        just(Token::Less).to(StackInstr::Less),
-        just(Token::And).to(StackInstr::And),
-        just(Token::Or).to(StackInstr::Or),
-        just(Token::Not).to(StackInstr::Not),
+        just(Token::Add).to(Instr::Add),
+        just(Token::Subtract).to(Instr::Subtract),
+        just(Token::Negate).to(Instr::Negate),
+        just(Token::Equal).to(Instr::Equal),
+        just(Token::Greater).to(Instr::Greater),
+        just(Token::Less).to(Instr::Less),
+        just(Token::And).to(Instr::And),
+        just(Token::Or).to(Instr::Or),
+        just(Token::Not).to(Instr::Not),
         just(Token::Push)
             .ignore_then(parse_segment)
             .then(parse_literal)
-            .map(|(seg, lit)| StackInstr::push(seg, lit)),
+            .map(|(seg, lit)| Instr::push(seg, lit)),
         just(Token::Pop)
             .ignore_then(parse_segment)
             .then(parse_literal)
-            .map(|(seg, lit)| StackInstr::pop(seg, lit)),
+            .map(|(seg, lit)| Instr::pop(seg, lit)),
+        just(Token::Call)
+            .ignore_then(parse_ident)
+            .then(parse_literal)
+            .map(|(name, args)| Instr::call(name, args)),
     ))
     .separated_by(just(Token::Newline))
     .allow_leading()
@@ -157,26 +192,46 @@ where
     .collect()
 }
 
-pub fn parse(input: impl AsRef<str>) -> Result<Vec<StackInstr>, Error> {
-    let tokens = Token::lexer(input.as_ref())
-        .spanned()
-        .map(|(tok, span)| match tok {
-            Ok(tok) => Ok((tok, span.into())),
-            Err(source) => Err(source),
-        })
-        .collect::<Result<Vec<_>, Error>>()?;
-    let token_stream =
-        Stream::from_iter(tokens).map((0..input.as_ref().len()).into(), |(t, s): (_, _)| (t, s));
-    let result = parser().parse(token_stream);
-    result.into_result().map_err(|_| Error::Syntax)
+fn parser<'tokens>()
+-> impl Parser<'tokens, &'tokens [Token], Vec<Function>, extra::Err<Rich<'tokens, Token>>> { 
+    let parse_literal = select! {
+        Token::LitInt(lit) => lit
+    };
+
+    let parse_ident = select! {
+        Token::Ident(ident) => ident
+    };
+
+    just(Token::Function)
+            .ignore_then(parse_ident)
+            .then(parse_literal)
+            .then(instr_parser())
+            .map(|((name, args), instr)| Function::new(instr, name, args))
+            .then_ignore(just(Token::Return))
+            .separated_by(just(Token::Newline))
+            .allow_leading()
+            .allow_trailing()
+            .collect()
+}
+
+pub fn parse(input: impl AsRef<str>) -> Result<Vec<Function>, Error> {
+    let tokens = Token::lexer(input.as_ref()).collect::<Result<Vec<_>, Error>>()?;
+    let result = parser().parse(&tokens).into_result();
+    result.map_err(|_| Error::Syntax)
+}
+
+pub fn parse_instr(input: impl AsRef<str>) -> Result<Vec<Instr>, Error> {
+    let tokens = Token::lexer(input.as_ref()).collect::<Result<Vec<_>, Error>>()?;
+    let result = instr_parser().parse(&tokens).into_result();
+    result.map_err(|_| Error::Syntax)
 }
 
 #[cfg(test)]
 mod tests {
     use crate::parse::Error::ParseInt;
-    use crate::parse::{parse, StackInstr, Token};
-    use logos::Logos;
     use crate::parse::StackSegment::Constant;
+    use crate::parse::{Function, Instr, Token, parse, parse_instr};
+    use logos::Logos;
 
     #[test]
     fn test_lit_not_int() {
@@ -187,16 +242,33 @@ mod tests {
         assert!(matches!(lexer.next(), Some(Err(ParseInt { .. }))));
     }
 
-    const TESTING_VM: &str = "push constant 1
+    const TESTING_VM: &str = "function Test 0
+    push constant 1
+    push constant 2
+    add
+    return";
+    #[test]
+    fn test_parse_program() {
+        let parsed = parse(TESTING_VM).expect("expect ok");
+        let instr = vec![
+            Instr::push(Constant, 1),
+            Instr::push(Constant, 2),
+            Instr::Add,
+        ];
+        let program = vec![Function::new(instr, "Test", 0)];
+        assert_eq!(program, parsed)
+    }
+
+    const TESTING_VM_INSTR: &str = "push constant 1
     push constant 2
     add";
     #[test]
-    fn test_parse() {
-        let instr = parse(TESTING_VM).expect("expect ok");
-        let parsed = vec![
-            StackInstr::push(Constant, 1),
-            StackInstr::push(Constant, 2),
-            StackInstr::Add,
+    fn test_parse_instr() {
+        let parsed = parse_instr(TESTING_VM_INSTR).expect("expect ok");
+        let instr = vec![
+            Instr::push(Constant, 1),
+            Instr::push(Constant, 2),
+            Instr::Add,
         ];
         assert_eq!(instr, parsed)
     }
