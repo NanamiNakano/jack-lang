@@ -21,9 +21,35 @@ const POP_TO_D: &'static str = "@SP\n\
 const LOAD_TOP_TO_M: &'static str = "@SP\n\
     A=M-1\n";
 
+trait Generate {
+    type Error;
+    fn generate(&self) -> Result<String, Self::Error>;
+}
+
+impl<T: Generate> Generate for Vec<T> {
+    type Error = <T as Generate>::Error;
+
+    fn generate(&self) -> Result<String, Self::Error> {
+        self.iter().map(|item| item.generate()).collect()
+    }
+}
+
+pub struct Scoped<T: ?Sized> {
+    scope: String,
+    value: T,
+}
+
+impl<T> Scoped<T> {
+    pub fn new(value: T, scope: &str) -> Self {
+        Self {
+            scope: scope.to_owned(),
+            value,
+        }
+    }
+}
+
 impl StackSegment {
-    fn generate_addr(&self, scope: impl AsRef<str>, literal: &u32) -> Result<String, Error> {
-        let scope = scope.as_ref();
+    fn generate_addr(&self, scope: &str, literal: &u32) -> Result<String, Error> {
         match self {
             StackSegment::Constant => Err(Syntax {
                 message: "constant has no address".to_owned(),
@@ -71,11 +97,7 @@ impl StackSegment {
         }
     }
 
-    fn generate_load_to_d(
-        &self,
-        scope: impl AsRef<str>,
-        literal: &u32,
-    ) -> Result<String, Error> {
+    fn generate_load_to_d(&self, scope: &str, literal: &u32) -> Result<String, Error> {
         match self {
             StackSegment::Constant => Ok(format!(
                 "@{literal}\n\
@@ -90,39 +112,35 @@ impl StackSegment {
     }
 }
 
-impl Instr {
-    pub fn generate(
-        &self,
-        scope: impl AsRef<str>,
-        count: usize,
-    ) -> Result<String, Error> {
-        let boolean_label = format!("{}.{count}", scope.as_ref());
-        let return_label = format!("{}$ret.{count}", scope.as_ref());
-        match self {
-            Self::Push { segment, literal } => {
-                let load = segment.generate_load_to_d(scope, literal)?;
+impl Generate for Scoped<StackInstr> {
+    type Error = Error;
+    fn generate(&self) -> Result<String, Self::Error> {
+        let boolean_label = &self.scope;
+        match &self.value {
+            StackInstr::Push { segment, literal } => {
+                let load = segment.generate_load_to_d(&self.scope, literal)?;
                 Ok(format!("{load}{PUSH_D}"))
             }
-            Self::Pop { segment, literal } => {
-                let addr = segment.generate_addr(scope, literal)?;
+            StackInstr::Pop { segment, literal } => {
+                let addr = segment.generate_addr(&self.scope, literal)?;
                 Ok(format!(
                     "{POP_TO_D}{addr}\
                 M=D\n"
                 ))
             }
-            Self::Add => Ok(format!(
+            StackInstr::Add => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
             M=D+M\n"
             )),
-            Self::Subtract => Ok(format!(
+            StackInstr::Subtract => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
             M=M-D\n"
             )),
-            Self::Negate => Ok(format!(
+            StackInstr::Negate => Ok(format!(
                 "{LOAD_TOP_TO_M}\
             M=-M\n"
             )),
-            Self::Equal => Ok(format!(
+            StackInstr::Equal => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
             D=M-D\n\
             @TRUE.{boolean_label}\n\
@@ -136,7 +154,7 @@ impl Instr {
             M=0\n\
             (END.{boolean_label})\n"
             )),
-            Self::Greater => Ok(format!(
+            StackInstr::Greater => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
             D=M-D\n\
             @TRUE.{boolean_label}\n\
@@ -150,7 +168,7 @@ impl Instr {
             M=0\n\
             (END.{boolean_label})\n"
             )),
-            Self::Less => Ok(format!(
+            StackInstr::Less => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
             D=M-D\n\
             @TRUE.{boolean_label}\n\
@@ -164,15 +182,15 @@ impl Instr {
             M=0\n\
             (END.{boolean_label})\n"
             )),
-            Self::And => Ok(format!(
+            StackInstr::And => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
             M=M&D\n"
             )),
-            Self::Or => Ok(format!(
+            StackInstr::Or => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
             M=M|D\n",
             )),
-            Self::Not => Ok(format!(
+            StackInstr::Not => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
             M=!M\n"
             )),
@@ -180,22 +198,18 @@ impl Instr {
     }
 }
 
-pub fn generate(instr: Vec<StackInstr>, scope: impl AsRef<str>) -> Result<String, Error> {
-    instr
-        .iter()
-        .enumerate()
-        .map(|(index, instr)| instr.generate(&scope, index))
-        .collect()
+impl StackInstr {
+    pub fn scoped(self, scope: &str) -> Scoped<Self> {
+        Scoped::new(self, scope)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::generate::generate;
-    use crate::parse::parse;
+    use crate::generate::Generate;
+    use crate::parse::StackInstr;
+    use crate::parse::StackSegment::Constant;
 
-    const TESTING_VM: &str = "push constant 1
-    push constant 2
-    add";
     const TESTING_ASM: &str = "@1\n\
     D=A\n\
     @SP\n\
@@ -215,12 +229,16 @@ mod tests {
     D=M\n\
     @SP\n\
     A=M-1\n\
-    M=M+D\n";
+    M=D+M\n";
 
     #[test]
     fn test_generate() {
-        let instr = parse(TESTING_VM).expect("expect ok");
-        let generated = generate(instr, "Test").expect("expect ok");
+        let instr = vec![
+            StackInstr::push(Constant, 1).scoped("test"),
+            StackInstr::push(Constant, 2).scoped("test"),
+            StackInstr::Add.scoped("test"),
+        ];
+        let generated = instr.generate().expect("expect ok");
         assert_eq!(TESTING_ASM, generated)
     }
 }
