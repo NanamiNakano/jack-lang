@@ -2,89 +2,141 @@ use chumsky::error::Rich;
 use chumsky::prelude::{choice, just};
 use chumsky::{IterParser, extra};
 use chumsky::{Parser, select};
+use derive_more::Display;
 use logos::Logos;
-use snafu::Snafu;
+use snafu::{ResultExt, Snafu};
+use std::fmt::{Debug, Display, Formatter};
 use std::num::ParseIntError;
 
+#[derive(Snafu, Debug, PartialEq, Clone)]
+pub enum Error<T: Display + Debug> {
+    #[snafu(display("syntax error: {reasons}"))]
+    Syntax { reasons: Reasons<T> },
+    #[snafu(display("error while lexing"))]
+    Lexing { source: LexingError },
+}
+
 #[derive(Snafu, Debug, PartialEq, Clone, Default)]
-pub enum Error {
+pub enum LexingError {
     #[default]
     #[snafu(display("unexpected token"))]
     UnexpectedToken,
     #[snafu(display("not an int"))]
     ParseInt { source: ParseIntError },
-    #[snafu(display("syntax error"))]
-    Syntax,
 }
 
-impl From<ParseIntError> for Error {
+#[derive(Debug, PartialEq, Clone)]
+pub struct Reasons<T: Display>(Vec<T>);
+
+impl<T: Display> Display for Reasons<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for (index, reason) in self.0.iter().enumerate() {
+            write!(f, "{index}: {reason}")?
+        }
+        Ok(())
+    }
+}
+
+impl From<ParseIntError> for LexingError {
     fn from(value: ParseIntError) -> Self {
         Self::ParseInt { source: value }
     }
 }
 
-#[derive(Logos, Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Logos, Debug, PartialEq, Eq, Hash, Clone, Display)]
 #[logos(skip r"[ \t\f]+")]
-#[logos(error = Error)]
+#[logos(error = LexingError)]
 pub(crate) enum Token {
+    #[display("push")]
     #[token("push")]
     Push,
+    #[display("pop")]
     #[token("pop")]
     Pop,
 
+    #[display("constant")]
     #[token("constant")]
     Constant,
+    #[display("local")]
     #[token("local")]
     Local,
+    #[display("argument")]
     #[token("argument")]
     Argument,
+    #[display("this")]
     #[token("this")]
     This,
+    #[display("that")]
     #[token("that")]
     That,
+    #[display("static")]
     #[token("static")]
     Static,
+    #[display("temp")]
     #[token("temp")]
     Temp,
+    #[display("pointer")]
     #[token("pointer")]
     Pointer,
 
+    #[display("add")]
     #[token("add")]
     Add,
+    #[display("sub")]
     #[token("sub")]
     Subtract,
+    #[display("neg")]
     #[token("neg")]
     Negate,
+    #[display("eq")]
     #[token("eq")]
     Equal,
+    #[display("gt")]
     #[token("gt")]
     Greater,
+    #[display("lt")]
     #[token("lt")]
     Less,
+    #[display("and")]
     #[token("and")]
     And,
+    #[display("or")]
     #[token("or")]
     Or,
+    #[display("not")]
     #[token("not")]
     Not,
 
+    #[display("function")]
     #[token("function")]
     Function,
+    #[display("call")]
     #[token("call")]
     Call,
+    #[display("return")]
     #[token("return")]
     Return,
 
+    #[display("label")]
+    #[token("label")]
+    Label,
+    #[display("goto")]
+    #[token("goto")]
+    Goto,
+    #[display("if-goto")]
+    #[token("if-goto")]
+    CondGoto,
+
     #[regex("[0-9]+", |lex| lex.slice().parse())]
     LitInt(u32),
-    #[regex("[a-zA-Z_.]+", |lex| lex.slice().to_owned())]
+    #[regex("[a-zA-Z][a-zA-Z0-9_.]*", |lex| lex.slice().to_owned())]
     Ident(String),
     #[token("\n")]
     Newline,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Instr {
+pub enum StackInstr {
     Push { segment: StackSegment, literal: u32 },
     Pop { segment: StackSegment, literal: u32 },
     Add,
@@ -96,20 +148,15 @@ pub enum Instr {
     And,
     Or,
     Not,
-    Call { name: String, args: u32 },
 }
 
-impl Instr {
+impl StackInstr {
     pub(crate) fn push(segment: StackSegment, literal: u32) -> Self {
         Self::Push { segment, literal }
     }
 
     pub(crate) fn pop(segment: StackSegment, literal: u32) -> Self {
         Self::Pop { segment, literal }
-    }
-
-    pub(crate) fn call(name: String, args: u32) -> Self {
-        Self::Call { name, args }
     }
 }
 
@@ -125,6 +172,71 @@ pub enum StackSegment {
     Pointer,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct CallInstr {
+    ident: String,
+    args: u32,
+}
+
+impl CallInstr {
+    fn new(ident: &str, args: u32) -> Self {
+        Self {
+            ident: ident.to_owned(),
+            args,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum CondInstr {
+    Label { ident: String },
+    Goto { ident: String },
+    CondGoto { ident: String },
+}
+
+impl CondInstr {
+    fn label(ident: &str) -> Self {
+        Self::Label {
+            ident: ident.to_owned(),
+        }
+    }
+    fn goto(ident: &str) -> Self {
+        Self::Goto {
+            ident: ident.to_owned(),
+        }
+    }
+    fn cond_goto(ident: &str) -> Self {
+        Self::CondGoto {
+            ident: ident.to_owned(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Instr {
+    Stack { data: StackInstr },
+    Call { data: CallInstr },
+    Cond { data: CondInstr },
+}
+
+impl From<StackInstr> for Instr {
+    fn from(value: StackInstr) -> Self {
+        Self::Stack { data: value }
+    }
+}
+
+impl From<CallInstr> for Instr {
+    fn from(value: CallInstr) -> Self {
+        Self::Call { data: value }
+    }
+}
+
+impl From<CondInstr> for Instr {
+    fn from(value: CondInstr) -> Self {
+        Self::Cond { data: value }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub(crate) instr: Vec<Instr>,
@@ -133,17 +245,17 @@ pub struct Function {
 }
 
 impl Function {
-    fn new(instr: Vec<Instr>, name: impl AsRef<str>, vars: u32) -> Self {
+    fn new(instr: Vec<Instr>, name: &str, vars: u32) -> Self {
         Self {
             instr,
-            name: name.as_ref().to_owned(),
+            name: name.to_owned(),
             vars,
         }
     }
 }
 
-fn instr_parser<'tokens>()
--> impl Parser<'tokens, &'tokens [Token], Vec<Instr>, extra::Err<Rich<'tokens, Token>>> {
+fn stack_instr_parser<'tokens>()
+-> impl Parser<'tokens, &'tokens [Token], StackInstr, extra::Err<Rich<'tokens, Token>>> {
     let parse_segment = select! {
         Token::Constant => StackSegment::Constant,
         Token::Local => StackSegment::Local,
@@ -159,41 +271,48 @@ fn instr_parser<'tokens>()
         Token::LitInt(lit) => lit
     };
 
+    choice((
+        just(Token::Add).to(StackInstr::Add),
+        just(Token::Subtract).to(StackInstr::Subtract),
+        just(Token::Negate).to(StackInstr::Negate),
+        just(Token::Equal).to(StackInstr::Equal),
+        just(Token::Greater).to(StackInstr::Greater),
+        just(Token::Less).to(StackInstr::Less),
+        just(Token::And).to(StackInstr::And),
+        just(Token::Or).to(StackInstr::Or),
+        just(Token::Not).to(StackInstr::Not),
+        just(Token::Push)
+            .ignore_then(parse_segment)
+            .then(parse_literal)
+            .map(|(seg, lit)| StackInstr::push(seg, lit)),
+        just(Token::Pop)
+            .ignore_then(parse_segment)
+            .then(parse_literal)
+            .map(|(seg, lit)| StackInstr::pop(seg, lit)),
+    ))
+}
+
+fn cond_instr_parser<'tokens>()
+-> impl Parser<'tokens, &'tokens [Token], CondInstr, extra::Err<Rich<'tokens, Token>>> {
     let parse_ident = select! {
         Token::Ident(ident) => ident
     };
 
     choice((
-        just(Token::Add).to(Instr::Add),
-        just(Token::Subtract).to(Instr::Subtract),
-        just(Token::Negate).to(Instr::Negate),
-        just(Token::Equal).to(Instr::Equal),
-        just(Token::Greater).to(Instr::Greater),
-        just(Token::Less).to(Instr::Less),
-        just(Token::And).to(Instr::And),
-        just(Token::Or).to(Instr::Or),
-        just(Token::Not).to(Instr::Not),
-        just(Token::Push)
-            .ignore_then(parse_segment)
-            .then(parse_literal)
-            .map(|(seg, lit)| Instr::push(seg, lit)),
-        just(Token::Pop)
-            .ignore_then(parse_segment)
-            .then(parse_literal)
-            .map(|(seg, lit)| Instr::pop(seg, lit)),
-        just(Token::Call)
+        just(Token::Label)
             .ignore_then(parse_ident)
-            .then(parse_literal)
-            .map(|(name, args)| Instr::call(name, args)),
+            .map(|ident| CondInstr::label(&ident)),
+        just(Token::Goto)
+            .ignore_then(parse_ident)
+            .map(|ident| CondInstr::goto(&ident)),
+        just(Token::CondGoto)
+            .ignore_then(parse_ident)
+            .map(|ident| CondInstr::cond_goto(&ident)),
     ))
-    .separated_by(just(Token::Newline))
-    .allow_leading()
-    .allow_trailing()
-    .collect()
 }
 
-fn parser<'tokens>()
--> impl Parser<'tokens, &'tokens [Token], Vec<Function>, extra::Err<Rich<'tokens, Token>>> { 
+fn instr_parser<'tokens>()
+-> impl Parser<'tokens, &'tokens [Token], Instr, extra::Err<Rich<'tokens, Token>>> {
     let parse_literal = select! {
         Token::LitInt(lit) => lit
     };
@@ -202,35 +321,66 @@ fn parser<'tokens>()
         Token::Ident(ident) => ident
     };
 
-    just(Token::Function)
+    choice((
+        stack_instr_parser().map(|instr| instr.into()),
+        just(Token::Call)
             .ignore_then(parse_ident)
             .then(parse_literal)
-            .then(instr_parser())
-            .map(|((name, args), instr)| Function::new(instr, name, args))
-            .then_ignore(just(Token::Return))
-            .separated_by(just(Token::Newline))
-            .allow_leading()
-            .allow_trailing()
-            .collect()
+            .map(|(ident, args)| CallInstr::new(&ident, args).into()),
+        cond_instr_parser().map(|instr| instr.into()),
+    ))
 }
 
-pub fn parse(input: impl AsRef<str>) -> Result<Vec<Function>, Error> {
-    let tokens = Token::lexer(input.as_ref()).collect::<Result<Vec<_>, Error>>()?;
+fn parser<'tokens>()
+-> impl Parser<'tokens, &'tokens [Token], Vec<Function>, extra::Err<Rich<'tokens, Token>>> {
+    let parse_literal = select! {
+        Token::LitInt(lit) => lit
+    };
+
+    let parse_ident = select! {
+        Token::Ident(ident) => ident
+    };
+
+    let parse_instr = instr_parser()
+        .separated_by(just(Token::Newline))
+        .allow_leading()
+        .allow_trailing()
+        .collect();
+
+    just(Token::Function)
+        .ignore_then(parse_ident)
+        .then(parse_literal)
+        .then(parse_instr)
+        .map(|((name, args), instr)| Function::new(instr, &name, args))
+        .then_ignore(just(Token::Return))
+        .separated_by(just(Token::Newline))
+        .allow_leading()
+        .allow_trailing()
+        .collect()
+}
+
+pub fn parse(input: &str) -> Result<Vec<Function>, Error<String>> {
+    let tokens = Token::lexer(input)
+        .collect::<Result<Vec<_>, _>>()
+        .context(LexingSnafu)?;
     let result = parser().parse(&tokens).into_result();
-    result.map_err(|_| Error::Syntax)
-}
-
-pub fn parse_instr(input: impl AsRef<str>) -> Result<Vec<Instr>, Error> {
-    let tokens = Token::lexer(input.as_ref()).collect::<Result<Vec<_>, Error>>()?;
-    let result = instr_parser().parse(&tokens).into_result();
-    result.map_err(|_| Error::Syntax)
+    result.map_err(|errors| {
+        let reasons = errors
+            .clone()
+            .iter()
+            .map(|reason| reason.clone().into_reason().to_string())
+            .collect::<Vec<_>>();
+        Error::Syntax {
+            reasons: Reasons(reasons),
+        }
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::parse::Error::ParseInt;
+    use crate::parse::LexingError::ParseInt;
     use crate::parse::StackSegment::Constant;
-    use crate::parse::{Function, Instr, Token, parse, parse_instr};
+    use crate::parse::{CallInstr, CondInstr, Function, StackInstr, Token, parse};
     use logos::Logos;
 
     #[test]
@@ -246,30 +396,29 @@ mod tests {
     push constant 1
     push constant 2
     add
+    call Label 0
+    return
+    function Label 0
+    label LABEL
+    goto LABEL
     return";
     #[test]
     fn test_parse_program() {
         let parsed = parse(TESTING_VM).expect("expect ok");
-        let instr = vec![
-            Instr::push(Constant, 1),
-            Instr::push(Constant, 2),
-            Instr::Add,
+        let test_instr = vec![
+            StackInstr::push(Constant, 1).into(),
+            StackInstr::push(Constant, 2).into(),
+            StackInstr::Add.into(),
+            CallInstr::new("Label", 0).into(),
         ];
-        let program = vec![Function::new(instr, "Test", 0)];
+        let label_instr = vec![
+            CondInstr::label("LABEL").into(),
+            CondInstr::goto("LABEL").into(),
+        ];
+        let program = vec![
+            Function::new(test_instr, "Test", 0),
+            Function::new(label_instr, "Label", 0),
+        ];
         assert_eq!(program, parsed)
-    }
-
-    const TESTING_VM_INSTR: &str = "push constant 1
-    push constant 2
-    add";
-    #[test]
-    fn test_parse_instr() {
-        let parsed = parse_instr(TESTING_VM_INSTR).expect("expect ok");
-        let instr = vec![
-            Instr::push(Constant, 1),
-            Instr::push(Constant, 2),
-            Instr::Add,
-        ];
-        assert_eq!(instr, parsed)
     }
 }
