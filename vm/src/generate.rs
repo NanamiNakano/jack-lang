@@ -320,20 +320,32 @@ impl Generate for Function {
     }
 }
 
-pub struct Program(pub Vec<Function>);
+pub struct Program {
+    code: Vec<Function>,
+    entry: String
+}
 
 impl Generate for Program {
     type Error = Error;
 
     fn generate(&self) -> Result<String, Self::Error> {
-        let code_base = self.0.generate()?;
+        let code_base = self.code.generate()?;
         Ok(format!("@256\n\
         D=A\n\
         @SP\n\
         M=D\n\
-        @Sys.init\n\
+        @{}\n\
         0;JMP\n\
-        {code_base}"))
+        {code_base}", self.entry))
+    }
+}
+
+impl Program {
+    pub fn new(code: Vec<Function>, entry: &str) -> Self {
+        Self {
+            code,
+            entry: entry.to_owned()
+        }
     }
 }
 
@@ -534,7 +546,7 @@ mod tests {
             BranchInstr::goto("WHILE").into(),
         ];
         let sys_init = Function::new(sys_init_instr, "Sys.init", 0);
-        let program = Program(vec![sys_init, main]);
+        let program = Program::new(vec![sys_init, main], "Sys.init");
         let generated = program.generate().expect("expect ok");
         println!("{generated}")
     }
