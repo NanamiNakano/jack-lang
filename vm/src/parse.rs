@@ -44,7 +44,7 @@ impl From<ParseIntError> for LexingError {
 }
 
 #[derive(Logos, Debug, PartialEq, Eq, Hash, Clone, Display)]
-#[logos(skip r"[ \t\f]+")]
+#[logos(skip r"([ \t\f\n]+)|//[^\n]*")]
 #[logos(error = LexingError)]
 pub(crate) enum Token {
     #[display("push")]
@@ -131,8 +131,6 @@ pub(crate) enum Token {
     LitInt(u32),
     #[regex("[a-zA-Z][a-zA-Z0-9_.]*", |lex| lex.slice().to_owned())]
     Ident(String),
-    #[token("\n")]
-    Newline,
 }
 
 #[derive(Clone, Debug, PartialEq)]
