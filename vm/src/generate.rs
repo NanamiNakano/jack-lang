@@ -354,12 +354,14 @@ impl Generate for Class {
     }
 }
 
-pub const BOOTSTRAP: &'static str = "@256\n\
+pub fn bootstrap() -> String {
+    let boot = CallInstr::new("Sys.init", 0).scoped_generate("BOOTSTRAP").expect("expect ok");
+    format!("@256\n\
     D=A\n\
     @SP\n\
     M=D\n\
-    @Sys.init\n\
-    0;JMP\n";
+    {boot}")
+}
 
 #[cfg(test)]
 mod tests {
