@@ -1,5 +1,5 @@
 use crate::generate::Error::{SegmentOverflow, Syntax};
-use crate::parse::{StackInstr, StackSegment};
+use crate::parse::{CallInstr, StackInstr, StackSegment};
 use crate::scoped::Scoped;
 use snafu::Snafu;
 
@@ -213,13 +213,48 @@ impl StackInstr {
     }
 }
 
+impl ScopedGenerate for CallInstr {
+    type Error = Error;
+
+    fn scoped_generate(&self, scope: &str) -> Result<String, Self::Error> {
+        let arg_offset = 5 + self.args;
+        let callee = &self.ident;
+        Ok(format!(
+            "@{scope}\n\
+        D=A\n\
+        {PUSH_D}\
+        @LCL\n\
+        D=M\n\
+        {PUSH_D}\
+        @ARG\n\
+        D=M\n\
+        {PUSH_D}\
+        @THIS\n\
+        D=M\n\
+        {PUSH_D}\
+        @THAT\n\
+        D=M\n\
+        {PUSH_D}\
+        @SP\n\
+        D=M\n\
+        @{arg_offset}\n\
+        D=D-A\n\
+        @LCL\n\
+        M=D\n\
+        @{callee}\n\
+        0;JMP\n\
+        ({scope})\n"
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::generate::ScopedGenerate;
-    use crate::parse::StackInstr;
     use crate::parse::StackSegment::Constant;
+    use crate::parse::{CallInstr, StackInstr};
 
-    const TESTING_ASM: &str = "@1\n\
+    const TEST_STACK_INSTR: &str = "@1\n\
     D=A\n\
     @SP\n\
     A=M\n\
@@ -239,15 +274,65 @@ mod tests {
     @SP\n\
     A=M-1\n\
     M=D+M\n";
-
     #[test]
-    fn test_generate() {
+    fn generate_stack_instr() {
         let instr = vec![
             StackInstr::push(Constant, 1),
             StackInstr::push(Constant, 2),
             StackInstr::Add,
         ];
         let generated = instr.scoped_generate("test").expect("expect ok");
-        assert_eq!(TESTING_ASM, generated)
+        assert_eq!(TEST_STACK_INSTR, generated)
+    }
+
+    const TEST_CALL_INSTR: &str = "@Test.test$ret.0\n\
+    D=A\n\
+    @SP\n\
+    A=M\n\
+    M=D\n\
+    @SP\n\
+    M=M+1\n\
+    @LCL\n\
+    D=M\n\
+    @SP\n\
+    A=M\n\
+    M=D\n\
+    @SP\n\
+    M=M+1\n\
+    @ARG\n\
+    D=M\n\
+    @SP\n\
+    A=M\n\
+    M=D\n\
+    @SP\n\
+    M=M+1\n\
+    @THIS\n\
+    D=M\n\
+    @SP\n\
+    A=M\n\
+    M=D\n\
+    @SP\n\
+    M=M+1\n\
+    @THAT\n\
+    D=M\n\
+    @SP\n\
+    A=M\n\
+    M=D\n\
+    @SP\n\
+    M=M+1\n\
+    @SP\n\
+    D=M\n\
+    @5\n\
+    D=D-A\n\
+    @LCL\n\
+    M=D\n\
+    @Callee\n\
+    0;JMP\n\
+    (Test.test$ret.0)\n";
+    #[test]
+    fn generate_call_instr() {
+        let instr = CallInstr::new("Callee", 0);
+        let generated = instr.scoped_generate("Test.test$ret.0").expect("expect ok");
+        assert_eq!(TEST_CALL_INSTR, generated)
     }
 }

@@ -174,12 +174,12 @@ pub enum StackSegment {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CallInstr {
-    ident: String,
-    args: u32,
+    pub ident: String,
+    pub args: u32,
 }
 
 impl CallInstr {
-    fn new(ident: &str, args: u32) -> Self {
+    pub fn new(ident: &str, args: u32) -> Self {
         Self {
             ident: ident.to_owned(),
             args,
@@ -403,7 +403,7 @@ mod tests {
     goto LABEL
     return";
     #[test]
-    fn test_parse_program() {
+    fn parse_program() {
         let parsed = parse(TESTING_VM).expect("expect ok");
         let test_instr = vec![
             StackInstr::push(Constant, 1).into(),
