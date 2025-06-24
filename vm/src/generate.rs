@@ -1,5 +1,6 @@
 use crate::generate::Error::{SegmentOverflow, Syntax};
 use crate::parse::{StackInstr, StackSegment};
+use crate::scoped::Scoped;
 use snafu::Snafu;
 
 #[derive(Snafu, Debug)]
@@ -34,17 +35,26 @@ impl<T: Generate> Generate for Vec<T> {
     }
 }
 
-pub struct Scoped<T: ?Sized> {
-    scope: String,
-    value: T,
+trait ScopedGenerate {
+    type Error;
+    fn scoped_generate(&self, scope: &str) -> Result<String, Self::Error>;
 }
 
-impl<T> Scoped<T> {
-    pub fn new(value: T, scope: &str) -> Self {
-        Self {
-            scope: scope.to_owned(),
-            value,
-        }
+impl<T: ScopedGenerate> ScopedGenerate for Vec<T> {
+    type Error = <T as ScopedGenerate>::Error;
+
+    fn scoped_generate(&self, scope: &str) -> Result<String, Self::Error> {
+        self.iter()
+            .map(|item| item.scoped_generate(scope))
+            .collect()
+    }
+}
+
+impl<T: ScopedGenerate> Generate for Scoped<T> {
+    type Error = <T as ScopedGenerate>::Error;
+
+    fn generate(&self) -> Result<String, Self::Error> {
+        self.value.scoped_generate(&self.scope)
     }
 }
 
@@ -112,17 +122,16 @@ impl StackSegment {
     }
 }
 
-impl Generate for Scoped<StackInstr> {
+impl ScopedGenerate for StackInstr {
     type Error = Error;
-    fn generate(&self) -> Result<String, Self::Error> {
-        let boolean_label = &self.scope;
-        match &self.value {
+    fn scoped_generate(&self, scope: &str) -> Result<String, Self::Error> {
+        match &self {
             StackInstr::Push { segment, literal } => {
-                let load = segment.generate_load_to_d(&self.scope, literal)?;
+                let load = segment.generate_load_to_d(scope, literal)?;
                 Ok(format!("{load}{PUSH_D}"))
             }
             StackInstr::Pop { segment, literal } => {
-                let addr = segment.generate_addr(&self.scope, literal)?;
+                let addr = segment.generate_addr(scope, literal)?;
                 Ok(format!(
                     "{POP_TO_D}{addr}\
                 M=D\n"
@@ -143,44 +152,44 @@ impl Generate for Scoped<StackInstr> {
             StackInstr::Equal => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
             D=M-D\n\
-            @TRUE.{boolean_label}\n\
+            @TRUE.{scope}\n\
             D;JEQ\n\
             {LOAD_TOP_TO_M}\
             M=-1\n\
-            @END.{boolean_label}\n\
+            @END.{scope}\n\
             0;JMP\n\
-            (TRUE.{boolean_label})\n\
+            (TRUE.{scope})\n\
             {LOAD_TOP_TO_M}\
             M=0\n\
-            (END.{boolean_label})\n"
+            (END.{scope})\n"
             )),
             StackInstr::Greater => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
             D=M-D\n\
-            @TRUE.{boolean_label}\n\
+            @TRUE.{scope}\n\
             D;JGT\n\
             {LOAD_TOP_TO_M}\
             M=-1\n\
-            @END.{boolean_label}\n\
+            @END.{scope}\n\
             0;JMP\n\
-            (TRUE.{boolean_label})\n\
+            (TRUE.{scope})\n\
             {LOAD_TOP_TO_M}\
             M=0\n\
-            (END.{boolean_label})\n"
+            (END.{scope})\n"
             )),
             StackInstr::Less => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
             D=M-D\n\
-            @TRUE.{boolean_label}\n\
+            @TRUE.{scope}\n\
             D;JLT\n\
             {LOAD_TOP_TO_M}\
             M=-1\n\
-            @END.{boolean_label}\n\
+            @END.{scope}\n\
             0;JMP\n\
-            (TRUE.{boolean_label})\n\
+            (TRUE.{scope})\n\
             {LOAD_TOP_TO_M}\
             M=0\n\
-            (END.{boolean_label})\n"
+            (END.{scope})\n"
             )),
             StackInstr::And => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
@@ -206,7 +215,7 @@ impl StackInstr {
 
 #[cfg(test)]
 mod tests {
-    use crate::generate::Generate;
+    use crate::generate::ScopedGenerate;
     use crate::parse::StackInstr;
     use crate::parse::StackSegment::Constant;
 
@@ -234,11 +243,11 @@ mod tests {
     #[test]
     fn test_generate() {
         let instr = vec![
-            StackInstr::push(Constant, 1).scoped("test"),
-            StackInstr::push(Constant, 2).scoped("test"),
-            StackInstr::Add.scoped("test"),
+            StackInstr::push(Constant, 1),
+            StackInstr::push(Constant, 2),
+            StackInstr::Add,
         ];
-        let generated = instr.generate().expect("expect ok");
+        let generated = instr.scoped_generate("test").expect("expect ok");
         assert_eq!(TESTING_ASM, generated)
     }
 }
