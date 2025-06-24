@@ -11,15 +11,15 @@ pub enum Error {
     SegmentOverflow,
 }
 
-const PUSH_D: &'static str = "@SP\n\
+const PUSH_D: &str = "@SP\n\
     A=M\n\
     M=D\n\
     @SP\n\
     M=M+1\n";
-const POP_TO_D: &'static str = "@SP\n\
+const POP_TO_D: &str = "@SP\n\
     AM=M-1\n\
     D=M\n";
-const LOAD_TOP_TO_M: &'static str = "@SP\n\
+const LOAD_TOP_TO_M: &str = "@SP\n\
     A=M-1\n";
 
 pub trait Generate {
