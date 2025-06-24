@@ -1,5 +1,5 @@
 use crate::generate::Error::{SegmentOverflow, Syntax};
-use crate::parse::{CallInstr, StackInstr, StackSegment};
+use crate::parse::{BranchInstr, CallInstr, StackInstr, StackSegment};
 use crate::scoped::Scoped;
 use snafu::Snafu;
 
@@ -40,17 +40,7 @@ trait ScopedGenerate {
     fn scoped_generate(&self, scope: &str) -> Result<String, Self::Error>;
 }
 
-impl<T: ScopedGenerate> ScopedGenerate for Vec<T> {
-    type Error = <T as ScopedGenerate>::Error;
-
-    fn scoped_generate(&self, scope: &str) -> Result<String, Self::Error> {
-        self.iter()
-            .map(|item| item.scoped_generate(scope))
-            .collect()
-    }
-}
-
-impl<T: ScopedGenerate> Generate for Scoped<T> {
+impl<T: ScopedGenerate + Clone> Generate for Scoped<T> {
     type Error = <T as ScopedGenerate>::Error;
 
     fn generate(&self) -> Result<String, Self::Error> {
@@ -66,27 +56,27 @@ impl StackSegment {
             }),
             StackSegment::Local => Ok(format!(
                 "@LCL\n\
-            D=M\n\
-            @{literal}\n\
-            A=D+A\n"
+                D=M\n\
+                @{literal}\n\
+                A=D+A\n"
             )),
             StackSegment::Argument => Ok(format!(
                 "@ARG\n\
-            D=M\n\
-            @{literal}\n\
-            A=D+A\n"
+                D=M\n\
+                @{literal}\n\
+                A=D+A\n"
             )),
             StackSegment::This => Ok(format!(
                 "@THIS\n\
-            D=M\n\
-            @{literal}\n\
-            A=D+A\n"
+                D=M\n\
+                @{literal}\n\
+                A=D+A\n"
             )),
             StackSegment::That => Ok(format!(
                 "@THAT\n\
-            D=M\n\
-            @{literal}\n\
-            A=D+A\n"
+                D=M\n\
+                @{literal}\n\
+                A=D+A\n"
             )),
             StackSegment::Static => Ok(format!("@{scope}.{literal}\n")),
             StackSegment::Temp => {
@@ -111,11 +101,11 @@ impl StackSegment {
         match self {
             StackSegment::Constant => Ok(format!(
                 "@{literal}\n\
-            D=A\n"
+                D=A\n"
             )),
             _ => Ok(format!(
                 "{}\
-            D=M\n",
+                D=M\n",
                 self.generate_addr(scope, literal)?
             )),
         }
@@ -134,82 +124,76 @@ impl ScopedGenerate for StackInstr {
                 let addr = segment.generate_addr(scope, literal)?;
                 Ok(format!(
                     "{POP_TO_D}{addr}\
-                M=D\n"
+                    M=D\n"
                 ))
             }
             StackInstr::Add => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
-            M=D+M\n"
+                M=D+M\n"
             )),
             StackInstr::Subtract => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
-            M=M-D\n"
+                M=M-D\n"
             )),
             StackInstr::Negate => Ok(format!(
                 "{LOAD_TOP_TO_M}\
-            M=-M\n"
+                M=-M\n"
             )),
             StackInstr::Equal => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
-            D=M-D\n\
-            @TRUE.{scope}\n\
-            D;JEQ\n\
-            {LOAD_TOP_TO_M}\
-            M=0\n\
-            @END.{scope}\n\
-            0;JMP\n\
-            (TRUE.{scope})\n\
-            {LOAD_TOP_TO_M}\
-            M=-1\n\
-            (END.{scope})\n"
+                D=M-D\n\
+                @TRUE.{scope}\n\
+                D;JEQ\n\
+                {LOAD_TOP_TO_M}\
+                M=0\n\
+                @END.{scope}\n\
+                0;JMP\n\
+                (TRUE.{scope})\n\
+                {LOAD_TOP_TO_M}\
+                M=-1\n\
+                (END.{scope})\n"
             )),
             StackInstr::Greater => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
-            D=M-D\n\
-            @TRUE.{scope}\n\
-            D;JGT\n\
-            {LOAD_TOP_TO_M}\
-            M=0\n\
-            @END.{scope}\n\
-            0;JMP\n\
-            (TRUE.{scope})\n\
-            {LOAD_TOP_TO_M}\
-            M=-1\n\
-            (END.{scope})\n"
+                D=M-D\n\
+                @TRUE.{scope}\n\
+                D;JGT\n\
+                {LOAD_TOP_TO_M}\
+                M=0\n\
+                @END.{scope}\n\
+                0;JMP\n\
+                (TRUE.{scope})\n\
+                {LOAD_TOP_TO_M}\
+                M=-1\n\
+                (END.{scope})\n"
             )),
             StackInstr::Less => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
-            D=M-D\n\
-            @TRUE.{scope}\n\
-            D;JLT\n\
-            {LOAD_TOP_TO_M}\
-            M=0\n\
-            @END.{scope}\n\
-            0;JMP\n\
-            (TRUE.{scope})\n\
-            {LOAD_TOP_TO_M}\
-            M=-1\n\
-            (END.{scope})\n"
+                D=M-D\n\
+                @TRUE.{scope}\n\
+                D;JLT\n\
+                {LOAD_TOP_TO_M}\
+                M=0\n\
+                @END.{scope}\n\
+                0;JMP\n\
+                (TRUE.{scope})\n\
+                {LOAD_TOP_TO_M}\
+                M=-1\n\
+                (END.{scope})\n"
             )),
             StackInstr::And => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
-            M=M&D\n"
+                M=M&D\n"
             )),
             StackInstr::Or => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
-            M=M|D\n",
+                M=M|D\n",
             )),
             StackInstr::Not => Ok(format!(
                 "{POP_TO_D}{LOAD_TOP_TO_M}\
-            M=!M\n"
+                M=!M\n"
             )),
         }
-    }
-}
-
-impl StackInstr {
-    pub fn scoped(self, scope: &str) -> Scoped<Self> {
-        Scoped::new(self, scope)
     }
 }
 
@@ -221,38 +205,59 @@ impl ScopedGenerate for CallInstr {
         let callee = &self.ident;
         Ok(format!(
             "@{scope}\n\
-        D=A\n\
-        {PUSH_D}\
-        @LCL\n\
-        D=M\n\
-        {PUSH_D}\
-        @ARG\n\
-        D=M\n\
-        {PUSH_D}\
-        @THIS\n\
-        D=M\n\
-        {PUSH_D}\
-        @THAT\n\
-        D=M\n\
-        {PUSH_D}\
-        @SP\n\
-        D=M\n\
-        @{arg_offset}\n\
-        D=D-A\n\
-        @LCL\n\
-        M=D\n\
-        @{callee}\n\
-        0;JMP\n\
-        ({scope})\n"
+            D=A\n\
+            {PUSH_D}\
+            @LCL\n\
+            D=M\n\
+            {PUSH_D}\
+            @ARG\n\
+            D=M\n\
+            {PUSH_D}\
+            @THIS\n\
+            D=M\n\
+            {PUSH_D}\
+            @THAT\n\
+            D=M\n\
+            {PUSH_D}\
+            @SP\n\
+            D=M\n\
+            @{arg_offset}\n\
+            D=D-A\n\
+            @LCL\n\
+            M=D\n\
+            @{callee}\n\
+            0;JMP\n\
+            ({scope})\n"
         ))
+    }
+}
+
+impl ScopedGenerate for BranchInstr {
+    type Error = Error;
+
+    fn scoped_generate(&self, scope: &str) -> Result<String, Self::Error> {
+        match self {
+            BranchInstr::Label { ident } => Ok(format!("({scope}.{ident})\n")),
+            BranchInstr::Goto { ident } => Ok(format!(
+                "@{scope}.{ident}\n\
+                0;JMP\n"
+            )),
+            BranchInstr::CondGoto { ident } => Ok(format!(
+                "{LOAD_TOP_TO_M}\
+                D=M\n\
+                @{scope}.{ident}\n\
+                D;JLT"
+            )),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::generate::ScopedGenerate;
+    use crate::generate::{Generate, ScopedGenerate};
     use crate::parse::StackSegment::Constant;
-    use crate::parse::{CallInstr, StackInstr};
+    use crate::parse::{BranchInstr, CallInstr, StackInstr};
+    use crate::scoped::ToScoped;
 
     const TEST_STACK_INSTR: &str = "@1\n\
     D=A\n\
@@ -302,13 +307,13 @@ mod tests {
     #[test]
     fn generate_stack_instr() {
         let instr = vec![
-            StackInstr::push(Constant, 1),
-            StackInstr::push(Constant, 2),
-            StackInstr::Add,
-            StackInstr::push(Constant, 3),
-            StackInstr::Equal
+            StackInstr::push(Constant, 1).to_scoped("Test.test.0"),
+            StackInstr::push(Constant, 2).to_scoped("Test.test.1"),
+            StackInstr::Add.to_scoped("Test.test.2"),
+            StackInstr::push(Constant, 3).to_scoped("Test.test.3"),
+            StackInstr::Equal.to_scoped("Test.test.4"),
         ];
-        let generated = instr.scoped_generate("test").expect("expect ok");
+        let generated = instr.generate().expect("expect ok");
         assert_eq!(TEST_STACK_INSTR, generated)
     }
 
@@ -361,5 +366,18 @@ mod tests {
         let instr = CallInstr::new("Callee", 0);
         let generated = instr.scoped_generate("Test.test$ret.0").expect("expect ok");
         assert_eq!(TEST_CALL_INSTR, generated)
+    }
+
+    const TEST_BRANCH_INSTR: &str = "(Test.test.Test)\n\
+    @Test.test.Test\n\
+    0;JMP\n";
+    #[test]
+    fn generate_branch_instr() {
+        let instr = vec![
+            BranchInstr::label("Test").to_scoped("Test.test"),
+            BranchInstr::goto("Test").to_scoped("Test.test"),
+        ];
+        let generated = instr.generate().expect("expect ok");
+        assert_eq!(TEST_BRANCH_INSTR, generated)
     }
 }

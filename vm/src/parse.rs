@@ -195,17 +195,17 @@ pub enum BranchInstr {
 }
 
 impl BranchInstr {
-    fn label(ident: &str) -> Self {
+    pub fn label(ident: &str) -> Self {
         Self::Label {
             ident: ident.to_owned(),
         }
     }
-    fn goto(ident: &str) -> Self {
+    pub fn goto(ident: &str) -> Self {
         Self::Goto {
             ident: ident.to_owned(),
         }
     }
-    fn cond_goto(ident: &str) -> Self {
+    pub fn cond_goto(ident: &str) -> Self {
         Self::CondGoto {
             ident: ident.to_owned(),
         }

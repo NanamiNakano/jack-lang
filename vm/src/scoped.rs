@@ -1,9 +1,10 @@
-pub struct Scoped<T> {
+#[derive(Clone)]
+pub struct Scoped<T: Clone> {
     pub scope: String,
     pub value: T,
 }
 
-impl<T> Scoped<T> {
+impl<T: Clone> Scoped<T> {
     pub fn new(value: T, scope: &str) -> Self {
         Self {
             scope: scope.to_owned(),
@@ -18,9 +19,12 @@ impl<T: Clone> Scoped<&T> {
     }
 }
 
-pub trait AsScoped {
-    fn as_scoped(&self, scope: &str) -> Scoped<&Self> {
+pub trait ToScoped {
+    fn to_scoped(self, scope: &str) -> Scoped<Self>
+    where
+        Self: Sized + Clone,
+    {
         Scoped::new(self, scope)
     }
 }
-impl<T> AsScoped for T {}
+impl<T> ToScoped for T {}
