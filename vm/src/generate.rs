@@ -123,7 +123,13 @@ impl ScopedGenerate for StackInstr {
             StackInstr::Pop { segment, literal } => {
                 let addr = segment.generate_addr(scope, literal)?;
                 Ok(format!(
-                    "{POP_TO_D}{addr}\
+                    "{addr}\
+                    D=A\n\
+                    @R15\n\
+                    M=D\n\
+                    {POP_TO_D}\
+                    @R15\n\
+                    A=M\n\
                     M=D\n"
                 ))
             }
