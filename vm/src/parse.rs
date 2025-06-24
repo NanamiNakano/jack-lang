@@ -9,9 +9,9 @@ use std::fmt::{Debug, Display, Formatter};
 use std::num::ParseIntError;
 
 #[derive(Snafu, Debug, PartialEq, Clone)]
-pub enum Error<T: Display + Debug> {
+pub enum Error {
     #[snafu(display("syntax error: {reasons}"))]
-    Syntax { reasons: Reasons<T> },
+    Syntax { reasons: Reasons },
     #[snafu(display("error while lexing"))]
     Lexing { source: LexingError },
 }
@@ -26,9 +26,9 @@ pub enum LexingError {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Reasons<T: Display>(Vec<T>);
+pub struct Reasons(Vec<String>);
 
-impl<T: Display> Display for Reasons<T> {
+impl Display for Reasons {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for (index, reason) in self.0.iter().enumerate() {
             write!(f, "{index}: {reason}")?
@@ -245,7 +245,7 @@ pub struct Function {
 }
 
 impl Function {
-    fn new(instr: Vec<Instr>, name: &str, vars: u32) -> Self {
+    pub fn new(instr: Vec<Instr>, name: &str, vars: u32) -> Self {
         Self {
             instr,
             name: name.to_owned(),
@@ -359,7 +359,7 @@ fn parser<'tokens>()
         .collect()
 }
 
-pub fn parse(input: &str) -> Result<Vec<Function>, Error<String>> {
+pub fn parse(input: &str) -> Result<Vec<Function>, Error> {
     let tokens = Token::lexer(input)
         .collect::<Result<Vec<_>, _>>()
         .context(LexingSnafu)?;
