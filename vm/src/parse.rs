@@ -342,9 +342,7 @@ fn parser<'tokens>()
     };
 
     let parse_instr = instr_parser()
-        .separated_by(just(Token::Newline))
-        .allow_leading()
-        .allow_trailing()
+        .repeated()
         .collect();
 
     just(Token::Function)
@@ -352,10 +350,8 @@ fn parser<'tokens>()
         .then(parse_literal)
         .then(parse_instr)
         .map(|((name, args), instr)| Function::new(instr, &name, args))
-        .then_ignore(just(Token::Return))
-        .separated_by(just(Token::Newline))
-        .allow_leading()
-        .allow_trailing()
+        .then_ignore(just(Token::Return).or_not())
+        .repeated()
         .collect()
 }
 
@@ -367,8 +363,8 @@ pub fn parse(input: &str) -> Result<Vec<Function>, Error> {
     result.map_err(|errors| {
         let reasons = errors
             .clone()
-            .iter()
-            .map(|reason| reason.clone().into_reason().to_string())
+            .into_iter()
+            .map(|reason| format!("{} at {}", reason.reason(), reason.span()))
             .collect::<Vec<_>>();
         Error::Syntax {
             reasons: Reasons(reasons),
