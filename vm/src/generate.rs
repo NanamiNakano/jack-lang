@@ -292,18 +292,18 @@ mod tests {
     @SP\n\
     A=M-1\n\
     D=M-D\n\
-    @TRUE.test\n\
+    @TRUE.Test.test.4\n\
     D;JEQ\n\
     @SP\n\
     A=M-1\n\
     M=0\n\
-    @END.test\n\
+    @END.Test.test.4\n\
     0;JMP\n\
-    (TRUE.test)\n\
+    (TRUE.Test.test.4)\n\
     @SP\n\
     A=M-1\n\
     M=-1\n\
-    (END.test)\n";
+    (END.Test.test.4)\n";
     #[test]
     fn generate_stack_instr() {
         let instr = vec![
