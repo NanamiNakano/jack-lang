@@ -240,14 +240,16 @@ pub struct Function {
     pub(crate) instr: Vec<Instr>,
     pub(crate) name: String,
     pub(crate) vars: u32,
+    pub(crate) returned: bool,
 }
 
 impl Function {
-    pub fn new(instr: Vec<Instr>, name: &str, vars: u32) -> Self {
+    pub fn new(instr: Vec<Instr>, name: &str, vars: u32, returned: bool) -> Self {
         Self {
             instr,
             name: name.to_owned(),
             vars,
+            returned
         }
     }
 }
@@ -347,8 +349,8 @@ fn parser<'tokens>()
         .ignore_then(parse_ident)
         .then(parse_literal)
         .then(parse_instr)
-        .map(|((name, args), instr)| Function::new(instr, &name, args))
-        .then_ignore(just(Token::Return).or_not())
+        .then(just(Token::Return).or_not().map(|returned| returned.is_some()))
+        .map(|(((name, args), instr), returned)| Function::new(instr, &name, args, returned))
         .repeated()
         .collect()
 }
@@ -410,8 +412,8 @@ mod tests {
             BranchInstr::goto("LABEL").into(),
         ];
         let program = vec![
-            Function::new(test_instr, "Test", 0),
-            Function::new(label_instr, "Label", 0),
+            Function::new(test_instr, "Test", 0, true),
+            Function::new(label_instr, "Label", 0, true),
         ];
         assert_eq!(program, parsed)
     }

@@ -286,11 +286,8 @@ impl ScopedGenerate for Function {
         let init_local_vars =
             vec![StackInstr::push(StackSegment::Constant, 0).to_scoped(scope); self.vars as usize]
                 .generate()?;
-        Ok(format!(
-            "({fn_scope})\n\
-            {init_local_vars}\
-            {body}\
-            @5\n\
+        let returned = if self.returned { 
+            format!("            @5\n\
             D=A\n\
             @LCL\n\
             A=M-D\n\
@@ -327,14 +324,20 @@ impl ScopedGenerate for Function {
             M=D\n\
             @R14\n\
             A=M\n\
-            0;JMP\n"
+            0;JMP\n")
+        } else { String::new() };
+        Ok(format!(
+            "({fn_scope})\n\
+            {init_local_vars}\
+            {body}\
+            {returned}"
         ))
     }
 }
 
 pub struct Class {
-    pub functions: Vec<Function>,
-    pub name: String,
+    functions: Vec<Function>,
+    name: String,
 }
 
 impl Class {
@@ -543,7 +546,7 @@ mod tests {
         let instr = vec![
             StackInstr::push(Constant, 0).into()
         ];
-        let function = Function::new(instr, "Test.test", 0);
+        let function = Function::new(instr, "Test.test", 0, true);
         let generated = function.scoped_generate("Test").expect("expect ok");
         assert_eq!(TEST_FUNCTION, generated)
     }
