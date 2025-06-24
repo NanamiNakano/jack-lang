@@ -262,17 +262,23 @@ impl ScopedGenerate for BranchInstr {
     }
 }
 
-impl Generate for Function {
+impl ScopedGenerate for Function {
     type Error = Error;
 
-    fn generate(&self) -> Result<String, Self::Error> {
-        let scope = &self.name;
+    fn scoped_generate(&self, scope: &str) -> Result<String, Self::Error> {
+        let fn_scope = &self.name;
         let body = self
             .instr
             .iter()
             .enumerate()
             .map(|(index, item)| match item {
-                Instr::Stack { data } => data.scoped_generate(&format!("{scope}.{index}")),
+                Instr::Stack { data } => {
+                    match data {
+                        StackInstr::Push { segment: StackSegment::Static, .. } => data.scoped_generate(scope),
+                        StackInstr::Pop { segment: StackSegment::Static, .. } => data.scoped_generate(scope),
+                        _ => data.scoped_generate(&format!("{fn_scope}.{index}"))
+                    }
+                },
                 Instr::Call { data } => data.scoped_generate(&format!("{scope}$ret.{index}")),
                 Instr::Branch { data } => data.scoped_generate(scope),
             })
@@ -281,7 +287,7 @@ impl Generate for Function {
             vec![StackInstr::push(StackSegment::Constant, 0).to_scoped(scope); self.vars as usize]
                 .generate()?;
         Ok(format!(
-            "({scope})\n\
+            "({fn_scope})\n\
             {init_local_vars}\
             {body}\
             @5\n\
@@ -326,38 +332,38 @@ impl Generate for Function {
     }
 }
 
-pub struct Program {
-    code: Vec<Function>,
-    entry: String
+pub struct Class {
+    pub functions: Vec<Function>,
+    pub name: String,
 }
 
-impl Generate for Program {
-    type Error = Error;
-
-    fn generate(&self) -> Result<String, Self::Error> {
-        let code_base = self.code.generate()?;
-        Ok(format!("@256\n\
-        D=A\n\
-        @SP\n\
-        M=D\n\
-        @{}\n\
-        0;JMP\n\
-        {code_base}", self.entry))
-    }
-}
-
-impl Program {
-    pub fn new(code: Vec<Function>, entry: &str) -> Self {
+impl Class {
+    pub fn new(functions: Vec<Function>, name: &str) -> Self {
         Self {
-            code,
-            entry: entry.to_owned()
+            functions,
+            name: name.to_owned()
         }
     }
 }
 
+impl Generate for Class {
+    type Error = Error;
+
+    fn generate(&self) -> Result<String, Self::Error> {
+        self.functions.iter().map(|fun| fun.scoped_generate(&self.name)).collect()
+    }
+}
+
+pub const BOOTSTRAP: &'static str = "@256\n\
+    D=A\n\
+    @SP\n\
+    M=D\n\
+    @Sys.init\n\
+    0;JMP\n";
+
 #[cfg(test)]
 mod tests {
-    use crate::generate::{Generate, Program, ScopedGenerate};
+    use crate::generate::{Generate, ScopedGenerate};
     use crate::parse::StackSegment::Constant;
     use crate::parse::{BranchInstr, CallInstr, Function, StackInstr};
     use crate::scoped::ToScoped;
@@ -536,24 +542,7 @@ mod tests {
             StackInstr::push(Constant, 0).into()
         ];
         let function = Function::new(instr, "Test.test", 0);
-        let generated = function.generate().expect("expect ok");
+        let generated = function.scoped_generate("Test").expect("expect ok");
         assert_eq!(TEST_FUNCTION, generated)
-    }
-    
-    #[test]
-    fn generate_program() {
-        let main_instr = vec![
-            StackInstr::push(Constant, 1).into()
-        ];
-        let main = Function::new(main_instr, "Main.main", 0);
-        let sys_init_instr = vec![
-            CallInstr::new("Main.main", 0).into(),
-            BranchInstr::label("WHILE").into(),
-            BranchInstr::goto("WHILE").into(),
-        ];
-        let sys_init = Function::new(sys_init_instr, "Sys.init", 0);
-        let program = Program::new(vec![sys_init, main], "Sys.init");
-        let generated = program.generate().expect("expect ok");
-        println!("{generated}")
     }
 }
