@@ -155,12 +155,12 @@ impl ScopedGenerate for StackInstr {
             @TRUE.{scope}\n\
             D;JEQ\n\
             {LOAD_TOP_TO_M}\
-            M=-1\n\
+            M=0\n\
             @END.{scope}\n\
             0;JMP\n\
             (TRUE.{scope})\n\
             {LOAD_TOP_TO_M}\
-            M=0\n\
+            M=-1\n\
             (END.{scope})\n"
             )),
             StackInstr::Greater => Ok(format!(
@@ -169,12 +169,12 @@ impl ScopedGenerate for StackInstr {
             @TRUE.{scope}\n\
             D;JGT\n\
             {LOAD_TOP_TO_M}\
-            M=-1\n\
+            M=0\n\
             @END.{scope}\n\
             0;JMP\n\
             (TRUE.{scope})\n\
             {LOAD_TOP_TO_M}\
-            M=0\n\
+            M=-1\n\
             (END.{scope})\n"
             )),
             StackInstr::Less => Ok(format!(
@@ -183,12 +183,12 @@ impl ScopedGenerate for StackInstr {
             @TRUE.{scope}\n\
             D;JLT\n\
             {LOAD_TOP_TO_M}\
-            M=-1\n\
+            M=0\n\
             @END.{scope}\n\
             0;JMP\n\
             (TRUE.{scope})\n\
             {LOAD_TOP_TO_M}\
-            M=0\n\
+            M=-1\n\
             (END.{scope})\n"
             )),
             StackInstr::And => Ok(format!(
@@ -273,13 +273,40 @@ mod tests {
     D=M\n\
     @SP\n\
     A=M-1\n\
-    M=D+M\n";
+    M=D+M\n\
+    @3\n\
+    D=A\n\
+    @SP\n\
+    A=M\n\
+    M=D\n\
+    @SP\n\
+    M=M+1\n\
+    @SP\n\
+    AM=M-1\n\
+    D=M\n\
+    @SP\n\
+    A=M-1\n\
+    D=M-D\n\
+    @TRUE.test\n\
+    D;JEQ\n\
+    @SP\n\
+    A=M-1\n\
+    M=0\n\
+    @END.test\n\
+    0;JMP\n\
+    (TRUE.test)\n\
+    @SP\n\
+    A=M-1\n\
+    M=-1\n\
+    (END.test)\n";
     #[test]
     fn generate_stack_instr() {
         let instr = vec![
             StackInstr::push(Constant, 1),
             StackInstr::push(Constant, 2),
             StackInstr::Add,
+            StackInstr::push(Constant, 3),
+            StackInstr::Equal
         ];
         let generated = instr.scoped_generate("test").expect("expect ok");
         assert_eq!(TEST_STACK_INSTR, generated)
