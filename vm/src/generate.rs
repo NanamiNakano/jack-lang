@@ -1,6 +1,6 @@
 use crate::generate::Error::{SegmentOverflow, Syntax};
-use crate::parse::{BranchInstr, CallInstr, StackInstr, StackSegment};
-use crate::scoped::Scoped;
+use crate::parse::{BranchInstr, CallInstr, Function, Instr, StackInstr, StackSegment};
+use crate::scoped::{Scoped, ToScoped};
 use snafu::Snafu;
 
 #[derive(Snafu, Debug)]
@@ -22,7 +22,7 @@ const POP_TO_D: &'static str = "@SP\n\
 const LOAD_TOP_TO_M: &'static str = "@SP\n\
     A=M-1\n";
 
-trait Generate {
+pub trait Generate {
     type Error;
     fn generate(&self) -> Result<String, Self::Error>;
 }
@@ -35,7 +35,7 @@ impl<T: Generate> Generate for Vec<T> {
     }
 }
 
-trait ScopedGenerate {
+pub trait ScopedGenerate {
     type Error;
     fn scoped_generate(&self, scope: &str) -> Result<String, Self::Error>;
 }
@@ -223,6 +223,10 @@ impl ScopedGenerate for CallInstr {
             D=M\n\
             @{arg_offset}\n\
             D=D-A\n\
+            @ARG\n\
+            M=D\n\
+            @SP\n\
+            D=M\n\
             @LCL\n\
             M=D\n\
             @{callee}\n\
@@ -252,11 +256,92 @@ impl ScopedGenerate for BranchInstr {
     }
 }
 
+impl Generate for Function {
+    type Error = Error;
+
+    fn generate(&self) -> Result<String, Self::Error> {
+        let scope = &self.name;
+        let body = self
+            .instr
+            .iter()
+            .enumerate()
+            .map(|(index, item)| match item {
+                Instr::Stack { data } => data.scoped_generate(&format!("{scope}.{index}")),
+                Instr::Call { data } => data.scoped_generate(&format!("{scope}$ret.{index}")),
+                Instr::Branch { data } => data.scoped_generate(scope),
+            })
+            .collect::<Result<String, _>>()?;
+        let init_local_vars =
+            vec![StackInstr::push(StackSegment::Constant, 0).to_scoped(scope); self.vars as usize]
+                .generate()?;
+        Ok(format!(
+            "({scope})\n\
+            {init_local_vars}\
+            {body}\
+            @5\n\
+            D=A\n\
+            @LCL\n\
+            A=M-D\n\
+            D=M\n\
+            @R14\n\
+            M=D\n\
+            {LOAD_TOP_TO_M}\
+            D=M\n\
+            @ARG\n\
+            A=M\n\
+            M=D\n\
+            D=A+1\n\
+            @SP\n\
+            M=D\n\
+            @LCL\n\
+            AM=M-1\n\
+            D=M\n\
+            @THAT\n\
+            M=D\n\
+            @LCL\n\
+            AM=M-1\n\
+            D=M\n\
+            @THIS\n\
+            M=D\n\
+            @LCL\n\
+            AM=M-1\n\
+            D=M\n\
+            @ARG\n\
+            M=D\n\
+            @LCL\n\
+            A=M-1\n\
+            D=M\n\
+            @LCL\n\
+            M=D\n\
+            @R14\n\
+            A=M\n\
+            0;JMP\n"
+        ))
+    }
+}
+
+pub struct Program(pub Vec<Function>);
+
+impl Generate for Program {
+    type Error = Error;
+
+    fn generate(&self) -> Result<String, Self::Error> {
+        let code_base = self.0.generate()?;
+        Ok(format!("@256\n\
+        D=A\n\
+        @SP\n\
+        M=D\n\
+        @Sys.init\n\
+        0;JMP\n\
+        {code_base}"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::generate::{Generate, ScopedGenerate};
+    use crate::generate::{Generate, Program, ScopedGenerate};
     use crate::parse::StackSegment::Constant;
-    use crate::parse::{BranchInstr, CallInstr, StackInstr};
+    use crate::parse::{BranchInstr, CallInstr, Function, StackInstr};
     use crate::scoped::ToScoped;
 
     const TEST_STACK_INSTR: &str = "@1\n\
@@ -379,5 +464,78 @@ mod tests {
         ];
         let generated = instr.generate().expect("expect ok");
         assert_eq!(TEST_BRANCH_INSTR, generated)
+    }
+    
+    const TEST_FUNCTION: &str = "(Test.test)\n\
+    @0\n\
+    D=A\n\
+    @SP\n\
+    A=M\n\
+    M=D\n\
+    @SP\n\
+    M=M+1\n\
+    @SP\n\
+    A=M-1\n\
+    D=M\n\
+    @ARG\n\
+    A=M\n\
+    M=D\n\
+    D=A+1\n\
+    @SP\n\
+    M=D\n\
+    @LCL\n\
+    AM=M-1\n\
+    D=M\n\
+    @THAT\n\
+    M=D\n\
+    @LCL\n\
+    AM=M-1\n\
+    D=M\n\
+    @THIS\n\
+    M=D\n\
+    @LCL\n\
+    AM=M-1\n\
+    D=M\n\
+    @ARG\n\
+    M=D\n\
+    @2\n\
+    D=A\n\
+    @LCL\n\
+    A=M-D\n\
+    D=M\n\
+    @R14\n\
+    M=D\n\
+    @LCL\n\
+    A=M-1\n\
+    D=M\n\
+    @LCL\n\
+    M=D\n\
+    @R14\n\
+    0;JMP\n";
+    #[test]
+    fn generate_function() {
+        let instr = vec![
+            StackInstr::push(Constant, 0).into()
+        ];
+        let function = Function::new(instr, "Test.test", 0);
+        let generated = function.generate().expect("expect ok");
+        assert_eq!(TEST_FUNCTION, generated)
+    }
+    
+    #[test]
+    fn generate_program() {
+        let main_instr = vec![
+            StackInstr::push(Constant, 1).into()
+        ];
+        let main = Function::new(main_instr, "Main.main", 0);
+        let sys_init_instr = vec![
+            CallInstr::new("Main.main", 0).into(),
+            BranchInstr::label("WHILE").into(),
+            BranchInstr::goto("WHILE").into(),
+        ];
+        let sys_init = Function::new(sys_init_instr, "Sys.init", 0);
+        let program = Program(vec![sys_init, main]);
+        let generated = program.generate().expect("expect ok");
+        println!("{generated}")
     }
 }
