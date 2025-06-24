@@ -188,13 +188,13 @@ impl CallInstr {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum CondInstr {
+pub enum BranchInstr {
     Label { ident: String },
     Goto { ident: String },
     CondGoto { ident: String },
 }
 
-impl CondInstr {
+impl BranchInstr {
     fn label(ident: &str) -> Self {
         Self::Label {
             ident: ident.to_owned(),
@@ -216,7 +216,7 @@ impl CondInstr {
 pub enum Instr {
     Stack { data: StackInstr },
     Call { data: CallInstr },
-    Cond { data: CondInstr },
+    Branch { data: BranchInstr },
 }
 
 impl From<StackInstr> for Instr {
@@ -231,9 +231,9 @@ impl From<CallInstr> for Instr {
     }
 }
 
-impl From<CondInstr> for Instr {
-    fn from(value: CondInstr) -> Self {
-        Self::Cond { data: value }
+impl From<BranchInstr> for Instr {
+    fn from(value: BranchInstr) -> Self {
+        Self::Branch { data: value }
     }
 }
 
@@ -292,8 +292,8 @@ fn stack_instr_parser<'tokens>()
     ))
 }
 
-fn cond_instr_parser<'tokens>()
--> impl Parser<'tokens, &'tokens [Token], CondInstr, extra::Err<Rich<'tokens, Token>>> {
+fn branch_instr_parser<'tokens>()
+-> impl Parser<'tokens, &'tokens [Token], BranchInstr, extra::Err<Rich<'tokens, Token>>> {
     let parse_ident = select! {
         Token::Ident(ident) => ident
     };
@@ -301,13 +301,13 @@ fn cond_instr_parser<'tokens>()
     choice((
         just(Token::Label)
             .ignore_then(parse_ident)
-            .map(|ident| CondInstr::label(&ident)),
+            .map(|ident| BranchInstr::label(&ident)),
         just(Token::Goto)
             .ignore_then(parse_ident)
-            .map(|ident| CondInstr::goto(&ident)),
+            .map(|ident| BranchInstr::goto(&ident)),
         just(Token::CondGoto)
             .ignore_then(parse_ident)
-            .map(|ident| CondInstr::cond_goto(&ident)),
+            .map(|ident| BranchInstr::cond_goto(&ident)),
     ))
 }
 
@@ -327,7 +327,7 @@ fn instr_parser<'tokens>()
             .ignore_then(parse_ident)
             .then(parse_literal)
             .map(|(ident, args)| CallInstr::new(&ident, args).into()),
-        cond_instr_parser().map(|instr| instr.into()),
+        branch_instr_parser().map(|instr| instr.into()),
     ))
 }
 
@@ -380,7 +380,7 @@ pub fn parse(input: &str) -> Result<Vec<Function>, Error<String>> {
 mod tests {
     use crate::parse::LexingError::ParseInt;
     use crate::parse::StackSegment::Constant;
-    use crate::parse::{CallInstr, CondInstr, Function, StackInstr, Token, parse};
+    use crate::parse::{CallInstr, BranchInstr, Function, StackInstr, Token, parse};
     use logos::Logos;
 
     #[test]
@@ -412,8 +412,8 @@ mod tests {
             CallInstr::new("Label", 0).into(),
         ];
         let label_instr = vec![
-            CondInstr::label("LABEL").into(),
-            CondInstr::goto("LABEL").into(),
+            BranchInstr::label("LABEL").into(),
+            BranchInstr::goto("LABEL").into(),
         ];
         let program = vec![
             Function::new(test_instr, "Test", 0),
